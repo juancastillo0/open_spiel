@@ -25,9 +25,9 @@ namespace dudo {
 
 namespace {
 // Default Parameters.
-constexpr int kDefaultPlayers = 2;
-constexpr int kMinPlayers = 2;
-constexpr int kDefaultNumDice = 1;
+constexpr int kMaxNumPlayers = 10;
+constexpr int kMinNumPlayers = 2;
+constexpr int kDefaultNumDice = 5;
 constexpr int kDefaultDiceSides = 6;  // Number of sides on the dice.
 constexpr const char* kDefaultBiddingRule = "reset-face";
 constexpr int kInvalidOutcome = -1;
@@ -45,14 +45,14 @@ const GameType kGameType{
     GameType::Information::kImperfectInformation,
     GameType::Utility::kZeroSum,
     GameType::RewardModel::kTerminal,
-    /*max_num_players=*/kDefaultPlayers,
-    /*min_num_players=*/kMinPlayers,
+    /*max_num_players=*/kMaxNumPlayers,
+    /*min_num_players=*/kMinNumPlayers,
     /*provides_information_state_string=*/true,
     /*provides_information_state_tensor=*/true,
     /*provides_observation_string=*/false,
     /*provides_observation_tensor=*/true,
     /*parameter_specification=*/
-    {{"players", GameParameter(kDefaultPlayers)},
+    {{"players", GameParameter(kMinNumPlayers)},
      {"numdice", GameParameter(kDefaultNumDice)},
      {"dice_sides", GameParameter(kDefaultDiceSides)},
      {"bidding_rule", GameParameter(kDefaultBiddingRule)}}};
@@ -65,14 +65,14 @@ const GameType kImperfectRecallGameType{
     GameType::Information::kImperfectInformation,
     GameType::Utility::kZeroSum,
     GameType::RewardModel::kTerminal,
-    /*max_num_players=*/kDefaultPlayers,
-    /*min_num_players=*/kMinPlayers,
+    /*max_num_players=*/kMaxNumPlayers,
+    /*min_num_players=*/kMinNumPlayers,
     /*provides_information_state_string=*/true,
     /*provides_information_state_tensor=*/false,
     /*provides_observation_string=*/false,
     /*provides_observation_tensor=*/false,
     /*parameter_specification=*/
-    {{"players", GameParameter(kDefaultPlayers)},
+    {{"players", GameParameter(kMinNumPlayers)},
      {"numdice", GameParameter(kDefaultNumDice)},
      {"dice_sides", GameParameter(kDefaultDiceSides)},
      {"bidding_rule", GameParameter(kDefaultBiddingRule)},
@@ -112,9 +112,9 @@ DudoState::DudoState(std::shared_ptr<const Game> game,
     : State(game),
       dice_outcomes_(),
       bidseq_(),
+      salpiconed_players_(),
       cur_player_(kChancePlayerId),  // chance starts
       cur_roller_(0),                // first player starts rolling
-      winner_(kInvalidPlayer),
       loser_(kInvalidPlayer),
       current_bid_(kInvalidBid),
       total_num_dice_(total_num_dice),
@@ -152,7 +152,24 @@ int DudoState::CurrentPlayer() const {
   }
 }
 
-void DudoState::ResolveWinner() {
+void DudoState::ResolveWinner(bool is_cazar) {
+  if (current_bid_ == total_num_dice_ * dice_sides() + 2) {
+    // SALPICON
+
+    if (is_cazar) { 
+      SpielFatalError(absl::StrCat(
+          "Illegal action Cazar, should be Liar or Bid strictly higher than ",
+            bidseq_.back()));
+    }
+    const std::vector<int> dices = dice_outcomes_[bidding_player_];
+    const std::unordered_set<int> dices_set(dices.begin(), dices.end());
+    if (dices_set.size() == dices.size()) {
+      // All dicer are unique
+      loser_ = calling_player_;
+    } else {
+      loser_ = bidding_player_;
+    }
+  }
   const std::pair<int, int> bid = UnrankBid(current_bid_);
   int quantity = bid.first, face = bid.second;
   int matches = 0;
@@ -170,11 +187,9 @@ void DudoState::ResolveWinner() {
 
   // If the number of matches are at least the quantity bid, then the bidder
   // wins. Otherwise, the caller wins.
-  if (matches >= quantity) {
-    winner_ = bidding_player_;
+  if (!is_cazar && matches >= quantity || matches == quantity) {
     loser_ = calling_player_;
   } else {
-    winner_ = calling_player_;
     loser_ = bidding_player_;
   }
 }
@@ -214,19 +229,38 @@ void DudoState::DoApplyAction(Action action) {
     }
   } else {
     // Check for legal actions.
-    if (!bidseq_.empty() && action <= bidseq_.back()) {
+    if (action == total_num_dice_ * dice_sides() + 2) {
+      // Salpicon
+      if (dice_outcomes_[cur_player_].size() != 5) {
+        SpielFatalError(absl::StrCat("Can only perform Salpicon with 5 dices."));
+      }
+      const bool did_insert = salpiconed_players_.insert(cur_player_).second;
+      if (!did_insert) {
+        SpielFatalError(absl::StrCat("Can only perform Salpicon once per game."));
+      }
+    } else if (!bidseq_.empty() && action <= bidseq_.back()) {
       SpielFatalError(absl::StrCat("Illegal action. ", action,
                                    " should be strictly higher than ",
                                    bidseq_.back()));
     }
+    if (action > total_num_dice_ * dice_sides()
+        && total_num_dice_ < max_dice_per_player_ * num_players_ / 2) {
+        SpielFatalError(absl::StrCat("Can only perform Salpicon or Cazar",
+                                     " with more than half the dices."));
+    }
+
+    bidseq_.push_back(action);
     if (action == total_num_dice_ * dice_sides()) {
       // This was the calling bid, game is over.
-      bidseq_.push_back(action);
       calling_player_ = cur_player_;
-      ResolveWinner();
+      ResolveWinner(false);
+    } else if (action == total_num_dice_ * dice_sides() + 1) {
+      // CAZAR
+      // This was the calling bid, game is over.
+      calling_player_ = cur_player_;
+      ResolveWinner(true);
     } else {
       // Up the bid and move to the next player.
-      bidseq_.push_back(action);
       current_bid_ = action;
       bidding_player_ = cur_player_;
       cur_player_ = NextPlayerRoundRobin(cur_player_, num_players_);
@@ -318,16 +352,14 @@ std::string DudoState::ToString() const {
   return result;
 }
 
-bool DudoState::IsTerminal() const { return winner_ != kInvalidPlayer; }
+bool DudoState::IsTerminal() const { return loser_ != kInvalidPlayer; }
 
 std::vector<double> DudoState::Returns() const {
   std::vector<double> returns(num_players_, 0.0);
-
-  if (winner_ != kInvalidPlayer) {
-    returns[winner_] = 1.0;
-  }
+  // TODO: cummulative reward
 
   if (loser_ != kInvalidPlayer) {
+    std::fill(returns.begin(), returns.end(), 1.0);
     returns[loser_] = -1.0;
   }
 

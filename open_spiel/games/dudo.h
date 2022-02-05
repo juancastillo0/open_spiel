@@ -104,8 +104,11 @@ class DudoState : public State {
   // The bid sequence.
   std::vector<int> bidseq_;
 
+  // Players that used "Salpicon".
+  std::set<int> salpiconed_players_;
+
  private:
-  void ResolveWinner();
+  void ResolveWinner(bool is_cazar);
 
   // Return the bidding rule used by the game.
   const BiddingRule bidding_rule() const;
@@ -113,7 +116,6 @@ class DudoState : public State {
   // Initialized to invalid values. Use Game::NewInitialState().
   Player cur_player_;  // Player whose turn it is.
   int cur_roller_;     // Player currently rolling dice.
-  int winner_;
   int loser_;
   int current_bid_;
   int total_num_dice_;
