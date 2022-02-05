@@ -85,7 +85,7 @@ std::shared_ptr<const Game> Factory(const GameParameters& params) {
 
 std::shared_ptr<const Game> ImperfectRecallFactory(
     const GameParameters& params) {
-  return std::shared_ptr<const Game>(new ImperfectRecallLiarsDiceGame(params));
+  return std::shared_ptr<const Game>(new ImperfectRecallDudoGame(params));
 }
 
 const BiddingRule ParseBiddingRule(const std::string& bidding_rule_str) {
@@ -570,24 +570,24 @@ std::vector<int> DudoGame::ObservationTensorShape() const {
           (total_num_dice_ * dice_sides_) + 1};
 }
 
-ImperfectRecallLiarsDiceGame::ImperfectRecallLiarsDiceGame(
+ImperfectRecallDudoGame::ImperfectRecallDudoGame(
     const GameParameters& params)
     : DudoGame(params, kImperfectRecallGameType),
       recall_length_(
           ParameterValue<int>("rollout_length", kDefaultRecallLength)) {}
 
-std::unique_ptr<State> ImperfectRecallLiarsDiceGame::NewInitialState() const {
-  return absl::make_unique<ImperfectRecallLiarsDiceState>(shared_from_this(),
+std::unique_ptr<State> ImperfectRecallDudoGame::NewInitialState() const {
+  return absl::make_unique<ImperfectRecallDudoState>(shared_from_this(),
       /*total_num_dice=*/total_num_dice(),
       /*max_dice_per_player=*/max_dice_per_player(),
       /*num_dice=*/num_dice());
 }
 
-std::string ImperfectRecallLiarsDiceState::InformationStateString(
+std::string ImperfectRecallDudoState::InformationStateString(
     Player player) const {
   SPIEL_CHECK_GE(player, 0);
   SPIEL_CHECK_LT(player, num_players_);
-  const auto* parent_game = down_cast<const ImperfectRecallLiarsDiceGame*>(
+  const auto* parent_game = down_cast<const ImperfectRecallDudoGame*>(
       game_.get());
 
   std::string result =

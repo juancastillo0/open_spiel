@@ -178,22 +178,22 @@ class DudoGame : public Game {
 // This game has an extra parameter:
 //   "recall_length"    int      number of bids to remember     (def. = 4)
 
-class ImperfectRecallLiarsDiceState : public DudoState {
+class ImperfectRecallDudoState : public DudoState {
  public:
-  ImperfectRecallLiarsDiceState(std::shared_ptr<const Game> game,
+  ImperfectRecallDudoState(std::shared_ptr<const Game> game,
                                 int total_num_dice,
                                 int max_dice_per_player,
                                 const std::vector<int>& num_dice)
       : DudoState(game, total_num_dice, max_dice_per_player, num_dice) {}
   std::string InformationStateString(Player player) const override;
   std::unique_ptr<State> Clone() const override {
-    return std::unique_ptr<State>(new ImperfectRecallLiarsDiceState(*this));
+    return std::unique_ptr<State>(new ImperfectRecallDudoState(*this));
   }
 };
 
-class ImperfectRecallLiarsDiceGame : public DudoGame {
+class ImperfectRecallDudoGame : public DudoGame {
  public:
-  explicit ImperfectRecallLiarsDiceGame(const GameParameters& params);
+  explicit ImperfectRecallDudoGame(const GameParameters& params);
   std::unique_ptr<State> NewInitialState() const override;
 
   int recall_length() const { return recall_length_; }
